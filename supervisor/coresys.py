@@ -47,6 +47,7 @@ if TYPE_CHECKING:
     from .os.manager import OSManager
     from .plugins.manager import PluginManager
     from .resolution.module import ResolutionManager
+    from .robotics.workbench import RoboticsWorkbench
     from .security.module import Security
     from .services import ServiceManager
     from .store import StoreManager
@@ -102,6 +103,9 @@ class CoreSys:
         self._bus: Bus | None = None
         self._mounts: MountManager | None = None
         self._websession: aiohttp.ClientSession | None = None
+
+        # Robotics workbench
+        self._robotics_workbench: RoboticsWorkbench | None = None
 
         # Task factory attributes
         self._set_task_context: list[Callable[[Context], Context]] = []
@@ -568,6 +572,20 @@ class CoreSys:
         if self._mounts:
             raise RuntimeError("mount manager already set!")
         self._mounts = value
+
+    @property
+    def robotics_workbench(self) -> RoboticsWorkbench:
+        """Return robotics workbench object."""
+        if self._robotics_workbench is None:
+            raise RuntimeError("robotics workbench not set!")
+        return self._robotics_workbench
+
+    @robotics_workbench.setter
+    def robotics_workbench(self, value: RoboticsWorkbench) -> None:
+        """Set a robotics workbench object."""
+        if self._robotics_workbench:
+            raise RuntimeError("robotics workbench already set!")
+        self._robotics_workbench = value
 
     @property
     def machine(self) -> str | None:

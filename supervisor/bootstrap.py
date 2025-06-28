@@ -41,6 +41,7 @@ from .mounts.manager import MountManager
 from .os.manager import OSManager
 from .plugins.manager import PluginManager
 from .resolution.module import ResolutionManager
+from .robotics.workbench import RoboticsWorkbench
 from .security.module import Security
 from .services import ServiceManager
 from .store import StoreManager
@@ -91,6 +92,10 @@ async def initialize_coresys() -> CoreSys:
     coresys.security = await Security(coresys).load_config()
     coresys.bus = Bus(coresys)
     coresys.mounts = await MountManager(coresys).load_config()
+    
+    # Initialize robotics workbench for Marduk's Robotics Lab
+    coresys.robotics_workbench = RoboticsWorkbench(coresys)
+    await coresys.robotics_workbench.initialize()
 
     # Set Machine/Host ID
     await coresys.init_machine()
