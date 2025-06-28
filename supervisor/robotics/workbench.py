@@ -8,7 +8,9 @@ from typing import Any, Dict, List, Optional
 from ..coresys import CoreSysAttributes
 from ..homeassistant.module import HomeAssistant
 from .gguf_integration import AgentState, GGUFManager
+from .ha_kernelizer import HomeAssistantKernelizer
 from .hypergraph import HypergraphEngine
+from .meta_cognitive import MetaCognitiveReporter
 from .tensor_manager import TensorManager
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
@@ -25,6 +27,8 @@ class RoboticsWorkbench(CoreSysAttributes):
         self.gguf_manager = GGUFManager(coresys)
         self.hypergraph_engine = HypergraphEngine(coresys)
         self.tensor_manager = TensorManager(coresys)
+        self.ha_kernelizer = HomeAssistantKernelizer(coresys)
+        self.meta_cognitive = MetaCognitiveReporter(coresys)
         
         # Workbench state
         self._experiments: Dict[str, Dict[str, Any]] = {}
@@ -35,8 +39,14 @@ class RoboticsWorkbench(CoreSysAttributes):
         """Initialize the robotics workbench."""
         _LOGGER.info("Initializing Marduk's Robotics Lab workbench")
         
+        # Initialize meta-cognitive reporting
+        await self.meta_cognitive.initialize()
+        
         # Create default experiment
         await self.create_experiment("default", "Default Robotics Experiment")
+        
+        # Start meta-cognitive reporting
+        await self.meta_cognitive.start_reporting()
         
         _LOGGER.info("Robotics workbench initialized successfully")
 
@@ -420,32 +430,47 @@ class RoboticsWorkbench(CoreSysAttributes):
         if experiment_id not in self._experiments:
             return False
         
-        # Create tensor node for HomeAssistant entity
-        node_id = self.hypergraph_engine.add_device_node(
-            device_id=entity_id,
-            device_type="homeassistant_entity",
-            name=f"HA_Entity_{entity_id}",
-            tensor_dims=[1, 1],  # Simple scalar value
-            properties={
-                "entity_id": entity_id,
-                "homeassistant_integration": True,
-                "agentic_control": True
-            }
-        )
-        
-        # Create tensor field for entity state
-        field_id = self.tensor_manager.create_tensor_field(
-            name=f"ha_entity_{entity_id}",
-            shape=(1, 100),  # [state_value, history]
-            metadata={
-                "entity_id": entity_id,
-                "homeassistant_entity": True
-            }
-        )
-        
-        experiment = self._experiments[experiment_id]
-        experiment["device_nodes"].append(node_id)
-        experiment["tensor_fields"].append(field_id)
+        # Use the kernelizer to create the entity tensor node
+        field_id = await self.ha_kernelizer._create_entity_tensor_node(entity_id, experiment_id)
         
         _LOGGER.info("Kernelized HomeAssistant entity %s for experiment %s", entity_id, experiment_id)
         return True
+
+    async def kernelize_homeassistant_automation(self, automation_config: Dict[str, Any], 
+                                               experiment_id: str) -> str:
+        """Convert HomeAssistant automation to agentic control loop."""
+        automation_id = await self.ha_kernelizer.kernelize_automation(automation_config, experiment_id)
+        _LOGGER.info("Kernelized HomeAssistant automation %s", automation_id)
+        return automation_id
+
+    async def update_homeassistant_entity_state(self, entity_id: str, state_data: Dict[str, Any]) -> bool:
+        """Update HomeAssistant entity state in tensor field."""
+        return await self.ha_kernelizer.update_entity_tensor(entity_id, state_data)
+
+    def get_kernelization_status(self) -> Dict[str, Any]:
+        """Get HomeAssistant kernelization status."""
+        return self.ha_kernelizer.get_kernelization_status()
+
+    async def activate_ha_automation(self, automation_id: str) -> bool:
+        """Activate kernelized HomeAssistant automation."""
+        return await self.ha_kernelizer.activate_automation(automation_id)
+
+    async def deactivate_ha_automation(self, automation_id: str) -> bool:
+        """Deactivate kernelized HomeAssistant automation."""
+        return await self.ha_kernelizer.deactivate_automation(automation_id)
+
+    def get_realtime_meta_cognitive_report(self) -> Optional[Dict[str, Any]]:
+        """Get real-time meta-cognitive report."""
+        return self.meta_cognitive.get_latest_report()
+
+    def get_meta_cognitive_history(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get meta-cognitive report history."""
+        return self.meta_cognitive.get_report_history(limit)
+
+    async def export_psystem_schema(self, export_path: Path) -> bool:
+        """Export complete P-System schema."""
+        return await self.meta_cognitive.export_full_psystem_schema(str(export_path))
+
+    def get_system_health_metrics(self) -> Dict[str, Any]:
+        """Get comprehensive system health metrics."""
+        return self.meta_cognitive.get_system_health_metrics()

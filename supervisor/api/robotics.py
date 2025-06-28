@@ -353,35 +353,142 @@ class APIRobotics(CoreSysAttributes):
         return {"result": "ok" if success else "error"}
 
     @api_process
+    async def kernelize_homeassistant_automation(self, request: web.Request) -> dict:
+        """Kernelize HomeAssistant automation into agentic control loop."""
+        experiment_id = request.match_info["experiment_id"]
+        
+        body = await api_validate(
+            request,
+            vol.Schema({
+                vol.Required("automation_config"): dict,
+            })
+        )
+        
+        workbench = self.sys_coresys.robotics_workbench
+        automation_id = await workbench.kernelize_homeassistant_automation(
+            automation_config=body["automation_config"],
+            experiment_id=experiment_id
+        )
+        
+        return {"result": "ok", "automation_id": automation_id}
+
+    @api_process
+    async def homeassistant_status(self, request: web.Request) -> dict:
+        """Get HomeAssistant kernelization status."""
+        workbench = self.sys_coresys.robotics_workbench
+        return workbench.get_kernelization_status()
+
+    @api_process
+    async def control_ha_automation(self, request: web.Request) -> dict:
+        """Control kernelized HomeAssistant automation."""
+        automation_id = request.match_info["automation_id"]
+        
+        body = await api_validate(
+            request,
+            vol.Schema({
+                vol.Required("action"): vol.In(["activate", "deactivate"]),
+            })
+        )
+        
+        workbench = self.sys_coresys.robotics_workbench
+        
+        if body["action"] == "activate":
+            success = await workbench.activate_ha_automation(automation_id)
+        else:
+            success = await workbench.deactivate_ha_automation(automation_id)
+        
+        return {"result": "ok" if success else "error"}
+
+    @api_process
+    async def update_ha_entity_state(self, request: web.Request) -> dict:
+        """Update HomeAssistant entity state in tensor field."""
+        body = await api_validate(
+            request,
+            vol.Schema({
+                vol.Required("entity_id"): str,
+                vol.Required("state_data"): dict,
+            })
+        )
+        
+        workbench = self.sys_coresys.robotics_workbench
+        success = await workbench.update_homeassistant_entity_state(
+            entity_id=body["entity_id"],
+            state_data=body["state_data"]
+        )
+        
+        return {"result": "ok" if success else "error"}
+
+    @api_process
     async def p_system_schema(self, request: web.Request) -> dict:
         """Get complete P-System compatible schema export."""
         workbench = self.sys_coresys.robotics_workbench
         
+        # Get latest meta-cognitive report
+        meta_report = workbench.get_realtime_meta_cognitive_report()
+        
+        if not meta_report:
+            # Generate on-demand if no report available
+            await workbench.meta_cognitive._generate_realtime_report()
+            meta_report = workbench.get_realtime_meta_cognitive_report()
+        
         # Create comprehensive meta-cognitive schema
         schema = {
-            "p_system_version": "1.0",
+            "p_system_version": "3.0",
             "marduk_robotics_lab_version": "1.0", 
-            "export_timestamp": None,
-            "system_overview": {
-                "experiments": workbench.list_experiments(),
-                "hypergraph": workbench.hypergraph_engine.get_hypergraph_summary(),
-                "tensor_configuration": workbench.tensor_manager.export_tensor_configuration(),
-                "agents": {
-                    "count": len(workbench.gguf_manager._agent_states),
-                    "schemas": {
-                        agent_id: workbench.gguf_manager.get_agent_tensor_schema(agent_id)
-                        for agent_id in workbench.gguf_manager.list_agent_states()
-                    }
-                }
-            },
-            "live_monitoring": workbench.get_live_visualization_data(),
-            "kernel_complexity": {
-                "total_nodes": len(workbench.hypergraph_engine._nodes),
-                "total_edges": len(workbench.hypergraph_engine._edges),
-                "total_tensor_fields": len(workbench.tensor_manager._tensor_fields),
-                "distributed_cognition_ready": True,
-                "neural_symbolic_integration": True,
-            }
+            "export_timestamp": asyncio.get_event_loop().time(),
+            "meta_cognitive_report": meta_report,
+            "self_descriptive": True,
+            "distributed_cognition_ready": True,
+            "neural_symbolic_integration": True,
+            "real_time_adaptation": True,
+            "system_health": workbench.get_system_health_metrics()
         }
         
         return schema
+
+    @api_process
+    async def meta_cognitive_report(self, request: web.Request) -> dict:
+        """Get latest meta-cognitive report."""
+        workbench = self.sys_coresys.robotics_workbench
+        
+        report = workbench.get_realtime_meta_cognitive_report()
+        if not report:
+            return {"error": "No meta-cognitive report available"}
+        
+        return {"report": report}
+
+    @api_process
+    async def meta_cognitive_history(self, request: web.Request) -> dict:
+        """Get meta-cognitive report history."""
+        limit = int(request.query.get("limit", 100))
+        workbench = self.sys_coresys.robotics_workbench
+        
+        history = workbench.get_meta_cognitive_history(limit)
+        return {"history": history, "count": len(history)}
+
+    @api_process
+    async def system_health(self, request: web.Request) -> dict:
+        """Get comprehensive system health metrics."""
+        workbench = self.sys_coresys.robotics_workbench
+        return workbench.get_system_health_metrics()
+
+    @api_process
+    async def export_psystem_schema(self, request: web.Request) -> dict:
+        """Export complete P-System schema to file."""
+        body = await api_validate(
+            request,
+            vol.Schema({
+                vol.Optional("export_path", default="/tmp/psystem_export"): str,
+            })
+        )
+        
+        workbench = self.sys_coresys.robotics_workbench
+        from pathlib import Path
+        export_path = Path(body["export_path"])
+        
+        success = await workbench.export_psystem_schema(export_path)
+        
+        return {
+            "result": "ok" if success else "error",
+            "export_path": str(export_path) if success else None,
+        }
