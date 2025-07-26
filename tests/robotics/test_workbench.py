@@ -8,6 +8,7 @@ from supervisor.robotics.workbench import RoboticsWorkbench
 from supervisor.robotics.gguf_integration import GGUFManager, AgentState
 from supervisor.robotics.hypergraph import HypergraphEngine, HypergraphNode
 from supervisor.robotics.tensor_manager import TensorManager
+from supervisor.robotics.middleware import HardwareInterfaceComponent, ComponentRegistry
 
 
 class TestRoboticsWorkbench:
@@ -304,3 +305,223 @@ class TestRoboticsWorkbench:
         assert exp2["name"] == "Exp 2"
         assert exp2["status"] == "running"
         assert exp2["device_count"] == 1
+
+
+class TestEnhancedWorkbenchMiddleware:
+    """Test enhanced workbench middleware functionality."""
+
+    @pytest.fixture
+    def workbench(self, coresys):
+        """Return robotics workbench."""
+        return RoboticsWorkbench(coresys)
+
+    class TestMiddlewareComponent(HardwareInterfaceComponent):
+        """Test middleware component for workbench tests."""
+        
+        def __init__(self, component_id: str, name: str):
+            super().__init__(component_id, name, "test_hardware", 2, 3)
+        
+        async def initialize(self):
+            self._initialized = True
+            return True
+        
+        async def start(self):
+            self._active = True
+            return True
+        
+        async def stop(self):
+            self._active = False
+            return True
+        
+        async def process_data(self, input_data):
+            return {"processed": True, "input": input_data}
+
+    @pytest.mark.asyncio
+    async def test_workbench_component_registry(self, workbench):
+        """Test workbench component registry initialization."""
+        await workbench.initialize()
+        
+        assert workbench.component_registry is not None
+        assert isinstance(workbench.component_registry, ComponentRegistry)
+
+    @pytest.mark.asyncio
+    async def test_middleware_component_registration(self, workbench):
+        """Test registering middleware components with workbench."""
+        await workbench.initialize()
+        
+        component = self.TestMiddlewareComponent("test_comp_001", "Test Component")
+        node_id = await workbench.register_middleware_component(component)
+        
+        assert node_id == "middleware_test_comp_001"
+        assert component.component_id in [c["component_id"] for c in workbench.get_registered_components()]
+
+    @pytest.mark.asyncio
+    async def test_middleware_component_unregistration(self, workbench):
+        """Test unregistering middleware components."""
+        await workbench.initialize()
+        
+        component = self.TestMiddlewareComponent("test_comp_002", "Test Component 2")
+        await workbench.register_middleware_component(component)
+        
+        success = await workbench.unregister_middleware_component("test_comp_002")
+        
+        assert success
+        component_ids = [c["component_id"] for c in workbench.get_registered_components()]
+        assert "test_comp_002" not in component_ids
+
+    @pytest.mark.asyncio
+    async def test_middleware_lifecycle_management(self, workbench):
+        """Test middleware component lifecycle management."""
+        await workbench.initialize()
+        
+        # Register multiple components
+        comp1 = self.TestMiddlewareComponent("comp_001", "Component 1")
+        comp2 = self.TestMiddlewareComponent("comp_002", "Component 2")
+        
+        await workbench.register_middleware_component(comp1)
+        await workbench.register_middleware_component(comp2)
+        
+        # Test initialization
+        success = await workbench.initialize_middleware_components()
+        assert success
+        assert comp1.is_initialized
+        assert comp2.is_initialized
+        
+        # Test starting
+        success = await workbench.start_middleware_components()
+        assert success
+        assert comp1.is_active
+        assert comp2.is_active
+        
+        # Test stopping
+        success = await workbench.stop_middleware_components()
+        assert success
+        assert not comp1.is_active
+        assert not comp2.is_active
+
+    @pytest.mark.asyncio
+    async def test_device_as_middleware_configuration(self, workbench):
+        """Test configuring devices as middleware components."""
+        await workbench.initialize()
+        await workbench.create_experiment("test_exp", "Test Experiment")
+        
+        config = {
+            "degrees_of_freedom": 2,
+            "channels": 3,
+            "temporal_length": 200,
+            "modalities": ["position", "velocity"]
+        }
+        
+        success = await workbench.configure_device_as_middleware(
+            experiment_id="test_exp",
+            device_id="servo_001",
+            device_type="servo_motor",
+            name="Test Servo",
+            config=config
+        )
+        
+        assert success
+        
+        # Verify component was registered
+        components = workbench.get_registered_components()
+        device_components = [c for c in components if c["component_id"] == "servo_001"]
+        assert len(device_components) == 1
+
+    @pytest.mark.asyncio
+    async def test_sensor_as_middleware_configuration(self, workbench):
+        """Test configuring sensors as middleware components."""
+        await workbench.initialize()
+        await workbench.create_experiment("test_exp", "Test Experiment")
+        
+        config = {
+            "channels": 9,
+            "sampling_rate": 1000.0,
+            "buffer_duration": 2.0
+        }
+        
+        success = await workbench.configure_sensor_as_middleware(
+            experiment_id="test_exp",
+            sensor_id="imu_001",
+            sensor_type="imu",
+            name="Test IMU",
+            config=config
+        )
+        
+        assert success
+        
+        # Verify component was registered
+        components = workbench.get_registered_components()
+        sensor_components = [c for c in components if c["component_id"] == "imu_001"]
+        assert len(sensor_components) == 1
+
+    @pytest.mark.asyncio
+    async def test_actuator_as_middleware_configuration(self, workbench):
+        """Test configuring actuators as middleware components."""
+        await workbench.initialize()
+        await workbench.create_experiment("test_exp", "Test Experiment")
+        
+        config = {
+            "degrees_of_freedom": 6,
+            "channels": 6,
+            "control_type": "position",
+            "control_history": 100
+        }
+        
+        success = await workbench.configure_actuator_as_middleware(
+            experiment_id="test_exp",
+            actuator_id="arm_001",
+            actuator_type="robotic_arm",
+            name="Test Arm",
+            config=config
+        )
+        
+        assert success
+        
+        # Verify component was registered
+        components = workbench.get_registered_components()
+        actuator_components = [c for c in components if c["component_id"] == "arm_001"]
+        assert len(actuator_components) == 1
+
+    @pytest.mark.asyncio
+    async def test_complete_middleware_workflow(self, workbench):
+        """Test complete middleware workflow with multiple components."""
+        await workbench.initialize()
+        await workbench.create_experiment("complete_test", "Complete Test")
+        
+        # Configure sensor
+        sensor_config = {"channels": 3, "sampling_rate": 100.0}
+        await workbench.configure_sensor_as_middleware(
+            "complete_test", "camera_001", "rgb_camera", "Test Camera", sensor_config
+        )
+        
+        # Configure actuator
+        actuator_config = {"degrees_of_freedom": 2, "control_type": "velocity"}
+        await workbench.configure_actuator_as_middleware(
+            "complete_test", "motors_001", "drive_motors", "Drive Motors", actuator_config
+        )
+        
+        # Register custom middleware
+        processor = self.TestMiddlewareComponent("processor_001", "Data Processor")
+        await workbench.register_middleware_component(processor)
+        
+        # Initialize and start all components
+        await workbench.initialize_middleware_components()
+        await workbench.start_middleware_components()
+        
+        # Verify all components are active
+        components = workbench.get_registered_components()
+        active_components = [c for c in components if c["active"]]
+        assert len(active_components) == 3  # sensor, actuator, processor
+        
+        # Test hypergraph integration
+        summary = workbench.hypergraph_engine.get_hypergraph_summary()
+        assert summary["total_nodes"] >= 3
+        assert "hardware_interface" in summary["middleware_types"]
+        
+        # Stop all components
+        await workbench.stop_middleware_components()
+        
+        # Verify all components are stopped
+        components = workbench.get_registered_components()
+        active_components = [c for c in components if c["active"]]
+        assert len(active_components) == 0

@@ -2,7 +2,10 @@
 
 import pytest
 
-from supervisor.robotics.hypergraph import HypergraphEngine, HypergraphNode, HypergraphEdge
+from supervisor.robotics.hypergraph import (
+    HypergraphEngine, HypergraphNode, HypergraphEdge, 
+    TensorDimensionSpec, MiddlewareInterface
+)
 
 
 class TestHypergraphEngine:
@@ -14,14 +17,16 @@ class TestHypergraphEngine:
         return HypergraphEngine(coresys)
 
     def test_device_node_creation(self, hypergraph):
-        """Test device node creation."""
+        """Test device node creation with enhanced tensor specifications."""
         node_id = hypergraph.add_device_node(
             device_id="servo_1",
             device_type="servo_motor", 
             name="Test Servo",
             tensor_dims=[1, 100],
             modalities=["position", "velocity"],
-            properties={"max_torque": 10.0}
+            properties={"max_torque": 10.0},
+            degrees_of_freedom=2,
+            channels=3
         )
         
         assert node_id == "device_servo_1"
@@ -29,21 +34,33 @@ class TestHypergraphEngine:
         node = hypergraph.get_node(node_id)
         assert node is not None
         assert node.node_type == "device"
+        assert node.middleware_type == "hardware_interface"
         assert node.name == "Test Servo"
         assert node.tensor_dimensions == [1, 100]
         assert node.degrees_of_freedom == 2
         assert "position" in node.modalities
         assert node.properties["max_torque"] == 10.0
+        
+        # Test enhanced tensor specification
+        assert node.tensor_spec is not None
+        assert node.tensor_spec.degrees_of_freedom == 2
+        assert node.tensor_spec.channels == 3
+        assert "position" in node.tensor_spec.modalities
+        
+        # Test component interface
+        assert node.component_interface is not None
+        assert node.component_interface.interface_type == "device_interface"
 
     def test_sensor_node_creation(self, hypergraph):
-        """Test sensor node creation."""
+        """Test sensor node creation with enhanced specifications."""
         node_id = hypergraph.add_sensor_node(
             sensor_id="imu_1",
             sensor_type="imu",
             name="9-DOF IMU",
             channels=9,
             sampling_rate=1000.0,
-            tensor_dims=[9, 1000]
+            tensor_dims=[9, 1000],
+            temporal_length=500
         )
         
         assert node_id == "sensor_imu_1"
@@ -51,22 +68,34 @@ class TestHypergraphEngine:
         node = hypergraph.get_node(node_id)
         assert node is not None
         assert node.node_type == "sensor"
+        assert node.middleware_type == "hardware_interface"
         assert node.name == "9-DOF IMU"
         assert node.tensor_dimensions == [9, 1000]
-        assert node.degrees_of_freedom == 2
+        assert node.degrees_of_freedom == 1  # Sensors have DoF=1
         assert node.properties["channels"] == 9
         assert node.properties["sampling_rate"] == 1000.0
         assert "imu" in node.modalities
+        
+        # Test enhanced tensor specification
+        assert node.tensor_spec is not None
+        assert node.tensor_spec.channels == 9
+        assert node.tensor_spec.temporal_length == 500
+        
+        # Test component interface
+        assert node.component_interface is not None
+        assert node.component_interface.interface_type == "sensor_input"
+        assert node.component_interface.update_frequency == 1000.0
 
     def test_actuator_node_creation(self, hypergraph):
-        """Test actuator node creation."""
+        """Test actuator node creation with enhanced specifications."""
         node_id = hypergraph.add_actuator_node(
             actuator_id="arm_1",
             actuator_type="robotic_arm",
             name="6-DOF Arm",
             dof=6,
             control_type="position",
-            tensor_dims=[6, 1]
+            tensor_dims=[6, 1],
+            channels=6
         )
         
         assert node_id == "actuator_arm_1"
@@ -74,18 +103,30 @@ class TestHypergraphEngine:
         node = hypergraph.get_node(node_id)
         assert node is not None
         assert node.node_type == "actuator"
+        assert node.middleware_type == "hardware_interface"
         assert node.name == "6-DOF Arm"
         assert node.tensor_dimensions == [6, 1]
         assert node.degrees_of_freedom == 6
         assert node.properties["control_type"] == "position"
+        
+        # Test enhanced tensor specification
+        assert node.tensor_spec is not None
+        assert node.tensor_spec.degrees_of_freedom == 6
+        assert node.tensor_spec.channels == 6
+        assert "position" in node.tensor_spec.modalities
+        
+        # Test component interface
+        assert node.component_interface is not None
+        assert node.component_interface.interface_type == "actuator_output"
 
     def test_agent_node_creation(self, hypergraph):
-        """Test agent node creation."""
+        """Test agent node creation with enhanced specifications."""
         node_id = hypergraph.add_agent_node(
             agent_id="agent_1",
             name="Neural Agent",
             agent_type="autonomous",
-            state_dims=[1, 512]
+            state_dims=[1, 512],
+            hidden_size=512
         )
         
         assert node_id == "agent_agent_1"
@@ -93,13 +134,24 @@ class TestHypergraphEngine:
         node = hypergraph.get_node(node_id)
         assert node is not None
         assert node.node_type == "agent"
+        assert node.middleware_type == "ai_agent"
         assert node.name == "Neural Agent"
         assert node.tensor_dimensions == [1, 512]
         assert "cognitive" in node.modalities
         assert "neural" in node.modalities
+        assert "symbolic" in node.modalities
+        
+        # Test enhanced tensor specification
+        assert node.tensor_spec is not None
+        assert node.tensor_spec.channels == 512
+        assert node.tensor_spec.degrees_of_freedom == 1
+        
+        # Test component interface
+        assert node.component_interface is not None
+        assert node.component_interface.interface_type == "control_signal"
 
     def test_control_loop_node_creation(self, hypergraph):
-        """Test control loop node creation."""
+        """Test control loop node creation with enhanced specifications."""
         node_id = hypergraph.add_control_loop_node(
             loop_id="pid_1",
             name="PID Controller",
@@ -112,9 +164,21 @@ class TestHypergraphEngine:
         node = hypergraph.get_node(node_id)
         assert node is not None
         assert node.node_type == "control_loop"
+        assert node.middleware_type == "controller"
         assert node.name == "PID Controller"
         assert node.properties["update_rate"] == 100.0
         assert node.properties["loop_type"] == "pid"
+        
+        # Test enhanced tensor specification
+        assert node.tensor_spec is not None
+        assert node.tensor_spec.degrees_of_freedom == 1
+        assert node.tensor_spec.channels == 1
+        assert "pid" in node.tensor_spec.modalities
+        
+        # Test component interface
+        assert node.component_interface is not None
+        assert node.component_interface.interface_type == "control_signal"
+        assert node.component_interface.update_frequency == 100.0
 
     def test_node_connections(self, hypergraph):
         """Test connecting nodes with hyperedges."""
@@ -376,3 +440,101 @@ class TestHypergraphEngine:
         total_dof = summary["total_degrees_of_freedom"]
         expected_dof = 7 + 7 + 6 + 6 + 2  # Arms + legs + head degrees of freedom
         assert total_dof >= expected_dof
+
+    def test_middleware_component_node(self, hypergraph):
+        """Test middleware component node creation."""
+        tensor_spec = TensorDimensionSpec(
+            degrees_of_freedom=2,
+            channels=4,
+            modalities=["custom", "processing"],
+            temporal_length=200
+        )
+        
+        interface = MiddlewareInterface(
+            interface_type="data_stream",
+            data_format="tensor",
+            communication_protocol="message_queue",
+            update_frequency=50.0
+        )
+        
+        node_id = hypergraph.add_middleware_component(
+            component_id="proc_001",
+            middleware_type="data_processor",
+            name="Custom Processor",
+            tensor_spec=tensor_spec,
+            interface=interface,
+            properties={"algorithm": "kalman_filter"}
+        )
+        
+        assert node_id == "middleware_proc_001"
+        
+        node = hypergraph.get_node(node_id)
+        assert node is not None
+        assert node.node_type == "middleware"
+        assert node.middleware_type == "data_processor"
+        assert node.name == "Custom Processor"
+        assert node.properties["algorithm"] == "kalman_filter"
+        
+        # Test tensor specification
+        assert node.tensor_spec is not None
+        assert node.tensor_spec.degrees_of_freedom == 2
+        assert node.tensor_spec.channels == 4
+        assert node.tensor_spec.temporal_length == 200
+        assert "custom" in node.tensor_spec.modalities
+        
+        # Test component interface
+        assert node.component_interface is not None
+        assert node.component_interface.interface_type == "data_stream"
+        assert node.component_interface.update_frequency == 50.0
+
+    def test_enhanced_hypergraph_summary(self, hypergraph):
+        """Test enhanced hypergraph summary with middleware types."""
+        # Create various middleware components
+        hypergraph.add_sensor_node("s1", "camera", "Camera", channels=3)
+        hypergraph.add_actuator_node("a1", "motor", "Motor", dof=2)
+        hypergraph.add_agent_node("ag1", "Neural Agent")
+        hypergraph.add_control_loop_node("c1", "PID Controller")
+        
+        # Add custom middleware
+        tensor_spec = TensorDimensionSpec(degrees_of_freedom=1, channels=2, modalities=["custom"])
+        interface = MiddlewareInterface("data_stream", "tensor", "direct")
+        hypergraph.add_middleware_component("m1", "data_processor", "Processor", tensor_spec, interface)
+        
+        summary = hypergraph.get_hypergraph_summary()
+        
+        assert summary["total_nodes"] == 5
+        assert "middleware_types" in summary
+        assert summary["middleware_types"]["hardware_interface"] == 2  # sensor + actuator
+        assert summary["middleware_types"]["ai_agent"] == 1
+        assert summary["middleware_types"]["controller"] == 1
+        assert summary["middleware_types"]["data_processor"] == 1
+        assert "total_channels" in summary
+        assert summary["total_channels"] > 0
+
+    def test_enhanced_export_structure(self, hypergraph):
+        """Test enhanced export with tensor specs and interfaces."""
+        # Create a node with full specifications
+        sensor_id = hypergraph.add_sensor_node(
+            "advanced_sensor", "lidar", "Advanced LIDAR",
+            channels=360, sampling_rate=20.0, temporal_length=1000
+        )
+        
+        export_data = hypergraph.export_hypergraph_structure()
+        
+        assert "nodes" in export_data
+        sensor_data = export_data["nodes"][sensor_id]
+        
+        # Test enhanced export fields
+        assert "middleware_type" in sensor_data
+        assert sensor_data["middleware_type"] == "hardware_interface"
+        
+        assert "tensor_spec" in sensor_data
+        tensor_spec_data = sensor_data["tensor_spec"]
+        assert tensor_spec_data["channels"] == 360
+        assert tensor_spec_data["temporal_length"] == 1000
+        assert tensor_spec_data["tensor_shape"] is not None
+        
+        assert "component_interface" in sensor_data
+        interface_data = sensor_data["component_interface"]
+        assert interface_data["interface_type"] == "sensor_input"
+        assert interface_data["update_frequency"] == 20.0

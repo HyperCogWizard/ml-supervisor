@@ -12,6 +12,7 @@ from .ha_kernelizer import HomeAssistantKernelizer
 from .hypergraph import HypergraphEngine
 from .meta_cognitive import MetaCognitiveReporter
 from .tensor_manager import TensorManager
+from .middleware import ComponentRegistry, MiddlewareComponent
 
 _LOGGER: logging.Logger = logging.getLogger(__name__)
 
@@ -29,6 +30,9 @@ class RoboticsWorkbench(CoreSysAttributes):
         self.tensor_manager = TensorManager(coresys)
         self.ha_kernelizer = HomeAssistantKernelizer(coresys)
         self.meta_cognitive = MetaCognitiveReporter(coresys)
+        
+        # Initialize component registry for composable middleware
+        self.component_registry = ComponentRegistry(self.hypergraph_engine)
         
         # Workbench state
         self._experiments: Dict[str, Dict[str, Any]] = {}
@@ -49,6 +53,233 @@ class RoboticsWorkbench(CoreSysAttributes):
         await self.meta_cognitive.start_reporting()
         
         _LOGGER.info("Robotics workbench initialized successfully")
+
+    async def register_middleware_component(self, component: MiddlewareComponent) -> str:
+        """Register a middleware component with the workbench."""
+        node_id = self.component_registry.register_component(component)
+        _LOGGER.info("Registered middleware component %s as node %s", 
+                    component.component_id, node_id)
+        return node_id
+
+    async def unregister_middleware_component(self, component_id: str) -> bool:
+        """Unregister a middleware component from the workbench."""
+        success = self.component_registry.unregister_component(component_id)
+        if success:
+            _LOGGER.info("Unregistered middleware component %s", component_id)
+        return success
+
+    def get_registered_components(self) -> List[Dict[str, Any]]:
+        """Get list of all registered middleware components."""
+        return self.component_registry.list_components()
+
+    async def initialize_middleware_components(self) -> bool:
+        """Initialize all registered middleware components."""
+        failed_components = await self.component_registry.initialize_all_components()
+        if failed_components:
+            _LOGGER.warning("Failed to initialize components: %s", failed_components)
+            return False
+        _LOGGER.info("Successfully initialized all middleware components")
+        return True
+
+    async def start_middleware_components(self) -> bool:
+        """Start all initialized middleware components."""
+        failed_components = await self.component_registry.start_all_components()
+        if failed_components:
+            _LOGGER.warning("Failed to start components: %s", failed_components)
+            return False
+        _LOGGER.info("Successfully started all middleware components")
+        return True
+
+    async def stop_middleware_components(self) -> bool:
+        """Stop all active middleware components."""
+        failed_components = await self.component_registry.stop_all_components()
+        if failed_components:
+            _LOGGER.warning("Failed to stop components: %s", failed_components)
+            return False
+        _LOGGER.info("Successfully stopped all middleware components")
+        return True
+
+    async def configure_device_as_middleware(self, experiment_id: str, device_id: str, 
+                                           device_type: str, name: str, config: Dict[str, Any]) -> bool:
+        """Configure a device as a composable middleware component."""
+        if experiment_id not in self._experiments:
+            _LOGGER.error("Experiment %s not found", experiment_id)
+            return False
+        
+        experiment = self._experiments[experiment_id]
+        
+        # Create middleware component wrapper for the device
+        from .middleware import HardwareInterfaceComponent
+        
+        class DeviceComponent(HardwareInterfaceComponent):
+            def __init__(self, device_id: str, name: str, device_type: str, config: Dict[str, Any]):
+                dof = config.get("degrees_of_freedom", 1)
+                channels = config.get("channels", 1)
+                super().__init__(device_id, name, device_type, dof, channels)
+                self.config = config
+            
+            async def initialize(self) -> bool:
+                self._initialized = True
+                return True
+            
+            async def start(self) -> bool:
+                self._active = True
+                return True
+            
+            async def stop(self) -> bool:
+                self._active = False
+                return True
+            
+            async def process_data(self, input_data: Any) -> Any:
+                # Basic pass-through for device interface
+                return input_data
+        
+        # Create and register the component
+        device_component = DeviceComponent(device_id, name, device_type, config)
+        node_id = await self.register_middleware_component(device_component)
+        
+        experiment["device_nodes"].append(node_id)
+        
+        # Also create tensor field for backward compatibility
+        field_id = self.tensor_manager.create_device_tensor_field(
+            device_id=device_id,
+            device_type=device_type,
+            channels=config.get("channels", 1),
+            temporal_length=config.get("temporal_length", 100)
+        )
+        
+        experiment["tensor_fields"].append(field_id)
+        
+        _LOGGER.info("Configured device %s (%s) as middleware for experiment %s", 
+                    device_id, name, experiment_id)
+        return True
+
+    async def configure_sensor_as_middleware(self, experiment_id: str, sensor_id: str,
+                                           sensor_type: str, name: str, config: Dict[str, Any]) -> bool:
+        """Configure a sensor as a composable middleware component."""
+        if experiment_id not in self._experiments:
+            return False
+        
+        experiment = self._experiments[experiment_id]
+        
+        # Create middleware component wrapper for the sensor
+        from .middleware import HardwareInterfaceComponent
+        
+        class SensorComponent(HardwareInterfaceComponent):
+            def __init__(self, sensor_id: str, name: str, sensor_type: str, config: Dict[str, Any]):
+                channels = config.get("channels", 1)
+                super().__init__(sensor_id, name, sensor_type, 1, channels)  # Sensors have DoF=1
+                self.config = config
+                self.sampling_rate = config.get("sampling_rate", 100.0)
+            
+            def get_interface_specification(self):
+                from .hypergraph import MiddlewareInterface
+                return MiddlewareInterface(
+                    interface_type="sensor_input",
+                    data_format="tensor",
+                    communication_protocol="direct",
+                    update_frequency=self.sampling_rate
+                )
+            
+            async def initialize(self) -> bool:
+                self._initialized = True
+                return True
+            
+            async def start(self) -> bool:
+                self._active = True
+                return True
+            
+            async def stop(self) -> bool:
+                self._active = False
+                return True
+            
+            async def process_data(self, input_data: Any) -> Any:
+                # Sensor data processing
+                return input_data
+        
+        # Create and register the component
+        sensor_component = SensorComponent(sensor_id, name, sensor_type, config)
+        node_id = await self.register_middleware_component(sensor_component)
+        
+        experiment["device_nodes"].append(node_id)
+        
+        # Create tensor field for backward compatibility
+        field_id = self.tensor_manager.create_sensor_tensor_field(
+            sensor_id=sensor_id,
+            sensor_type=sensor_type,
+            channels=config.get("channels", 1),
+            sampling_rate=config.get("sampling_rate", 100.0),
+            buffer_duration=config.get("buffer_duration", 1.0)
+        )
+        
+        experiment["tensor_fields"].append(field_id)
+        
+        _LOGGER.info("Configured sensor %s (%s) as middleware for experiment %s", 
+                    sensor_id, name, experiment_id)
+        return True
+
+    async def configure_actuator_as_middleware(self, experiment_id: str, actuator_id: str,
+                                             actuator_type: str, name: str, config: Dict[str, Any]) -> bool:
+        """Configure an actuator as a composable middleware component."""
+        if experiment_id not in self._experiments:
+            return False
+        
+        experiment = self._experiments[experiment_id]
+        
+        # Create middleware component wrapper for the actuator
+        from .middleware import HardwareInterfaceComponent
+        
+        class ActuatorComponent(HardwareInterfaceComponent):
+            def __init__(self, actuator_id: str, name: str, actuator_type: str, config: Dict[str, Any]):
+                dof = config.get("degrees_of_freedom", 1)
+                channels = config.get("channels", dof)
+                super().__init__(actuator_id, name, actuator_type, dof, channels)
+                self.config = config
+                self.control_type = config.get("control_type", "position")
+            
+            def get_interface_specification(self):
+                from .hypergraph import MiddlewareInterface
+                return MiddlewareInterface(
+                    interface_type="actuator_output",
+                    data_format="tensor", 
+                    communication_protocol="direct"
+                )
+            
+            async def initialize(self) -> bool:
+                self._initialized = True
+                return True
+            
+            async def start(self) -> bool:
+                self._active = True
+                return True
+            
+            async def stop(self) -> bool:
+                self._active = False
+                return True
+            
+            async def process_data(self, input_data: Any) -> Any:
+                # Actuator command processing
+                return input_data
+        
+        # Create and register the component
+        actuator_component = ActuatorComponent(actuator_id, name, actuator_type, config)
+        node_id = await self.register_middleware_component(actuator_component)
+        
+        experiment["device_nodes"].append(node_id)
+        
+        # Create tensor field for backward compatibility
+        field_id = self.tensor_manager.create_actuator_tensor_field(
+            actuator_id=actuator_id,
+            actuator_type=actuator_type,
+            dof=config.get("degrees_of_freedom", 1),
+            control_history=config.get("control_history", 50)
+        )
+        
+        experiment["tensor_fields"].append(field_id)
+        
+        _LOGGER.info("Configured actuator %s (%s) as middleware for experiment %s", 
+                    actuator_id, name, experiment_id)
+        return True
 
     async def create_experiment(self, experiment_id: str, name: str, 
                                description: str = "", metadata: Optional[Dict[str, Any]] = None) -> bool:
