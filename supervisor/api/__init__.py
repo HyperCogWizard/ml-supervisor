@@ -34,6 +34,7 @@ from .observer import APIObserver
 from .os import APIOS
 from .proxy import APIProxy
 from .resolution import APIResoulution
+from .robotics import APIRobotics
 from .root import APIRoot
 from .security import APISecurity
 from .services import APIServices
@@ -110,6 +111,7 @@ class RestAPI(CoreSysAttributes):
         static_resource_configs.extend(self._register_panel())
         self._register_proxy()
         self._register_resolution()
+        self._register_robotics()
         self._register_root()
         self._register_security()
         self._register_services()
@@ -387,6 +389,44 @@ class RestAPI(CoreSysAttributes):
                     api_resolution.suggestions_for_issue,
                 ),
                 web.post("/resolution/healthcheck", api_resolution.healthcheck),
+            ]
+        )
+
+    def _register_robotics(self) -> None:
+        """Register robotics workbench functions."""
+        api_robotics = APIRobotics()
+        api_robotics.coresys = self.coresys
+
+        self.webapp.add_routes(
+            [
+                web.get("/robotics/info", api_robotics.info),
+                web.get("/robotics/experiments", api_robotics.experiments),
+                web.post("/robotics/experiments", api_robotics.create_experiment),
+                web.get("/robotics/experiments/{experiment_id}", api_robotics.experiment_info),
+                web.post("/robotics/experiments/{experiment_id}/start", api_robotics.start_experiment),
+                web.post("/robotics/experiments/{experiment_id}/stop", api_robotics.stop_experiment),
+                web.post("/robotics/experiments/{experiment_id}/devices", api_robotics.configure_device),
+                web.post("/robotics/experiments/{experiment_id}/sensors", api_robotics.configure_sensor),
+                web.post("/robotics/experiments/{experiment_id}/actuators", api_robotics.configure_actuator),
+                web.post("/robotics/experiments/{experiment_id}/control_loops", api_robotics.create_control_loop),
+                web.post("/robotics/experiments/{experiment_id}/connections", api_robotics.connect_components),
+                web.post("/robotics/experiments/{experiment_id}/kernelize_ha", api_robotics.kernelize_homeassistant),
+                web.post("/robotics/experiments/{experiment_id}/kernelize_automation", api_robotics.kernelize_homeassistant_automation),
+                web.post("/robotics/experiments/{experiment_id}/export", api_robotics.export_experiment),
+                web.get("/robotics/visualization/live", api_robotics.live_visualization),
+                web.get("/robotics/hypergraph", api_robotics.hypergraph_structure),
+                web.get("/robotics/tensors", api_robotics.tensor_fields),
+                web.get("/robotics/tensors/{field_id}/stats", api_robotics.tensor_field_stats),
+                web.get("/robotics/agents", api_robotics.agents_list),
+                web.get("/robotics/agents/{agent_id}", api_robotics.agent_info),
+                web.get("/robotics/homeassistant/status", api_robotics.homeassistant_status),
+                web.post("/robotics/homeassistant/entities/update", api_robotics.update_ha_entity_state),
+                web.post("/robotics/homeassistant/automations/{automation_id}/control", api_robotics.control_ha_automation),
+                web.get("/robotics/meta_cognitive/report", api_robotics.meta_cognitive_report),
+                web.get("/robotics/meta_cognitive/history", api_robotics.meta_cognitive_history),
+                web.get("/robotics/system/health", api_robotics.system_health),
+                web.post("/robotics/export/psystem", api_robotics.export_psystem_schema),
+                web.get("/robotics/p_system_schema", api_robotics.p_system_schema),
             ]
         )
 
