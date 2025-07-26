@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -705,3 +706,90 @@ class RoboticsWorkbench(CoreSysAttributes):
     def get_system_health_metrics(self) -> Dict[str, Any]:
         """Get comprehensive system health metrics."""
         return self.meta_cognitive.get_system_health_metrics()
+
+    # GGUF Integration Methods
+
+    def create_comprehensive_agent_state(self, agent_id: Optional[str] = None, 
+                                       name: str = "", metadata: Optional[Dict[str, Any]] = None) -> str:
+        """Create comprehensive agent state from entire workbench."""
+        agent_state = self.gguf_manager.create_comprehensive_agent_state(
+            workbench=self, agent_id=agent_id, name=name, metadata=metadata
+        )
+        return agent_state.agent_id
+
+    def export_agent_as_gguf(self, agent_id: str, export_path: Path) -> None:
+        """Export agent state as GGUF file."""
+        self.gguf_manager.export_agent_state(agent_id, export_path)
+
+    def export_agent_as_p_system_membrane(self, agent_id: str, export_path: Path, 
+                                        membrane_name: Optional[str] = None) -> Dict[str, Any]:
+        """Export agent as P-System membrane with nested GGUF structure."""
+        return self.gguf_manager.export_as_p_system_membrane(agent_id, export_path, membrane_name)
+
+    def import_p_system_membrane(self, membrane_path: Path) -> str:
+        """Import P-System membrane and create agent state."""
+        return self.gguf_manager.import_p_system_membrane(membrane_path)
+
+    def export_all_environment_tensors(self, export_path: Path) -> Dict[str, Any]:
+        """Export all environment tensors as GGUF files."""
+        return self.gguf_manager.export_all_environment_tensors(self, export_path)
+
+    def get_agent_tensor_schema(self, agent_id: str) -> Dict[str, Any]:
+        """Get P-System compatible tensor schema for agent."""
+        return self.gguf_manager.get_agent_tensor_schema(agent_id)
+
+    def list_agent_states(self) -> List[str]:
+        """List all agent state IDs."""
+        return self.gguf_manager.list_agent_states()
+
+    def create_agent_from_tensor_manager(self, agent_id: Optional[str] = None,
+                                       name: str = "", metadata: Optional[Dict[str, Any]] = None) -> str:
+        """Create agent state from current tensor manager data."""
+        agent_state = self.gguf_manager.create_agent_state_from_tensor_manager(
+            self.tensor_manager, agent_id, name, metadata
+        )
+        return agent_state.agent_id
+
+    def create_agent_from_kernelizer(self, agent_id: Optional[str] = None,
+                                   name: str = "", metadata: Optional[Dict[str, Any]] = None) -> str:
+        """Create agent state from HomeAssistant kernelizer data."""
+        agent_state = self.gguf_manager.create_agent_state_from_kernelizer(
+            self.ha_kernelizer, agent_id, name, metadata  
+        )
+        return agent_state.agent_id
+
+    def export_current_workbench_state(self, export_path: Path) -> Dict[str, Any]:
+        """Export complete current workbench state as P-System membranes."""
+        export_path.mkdir(parents=True, exist_ok=True)
+        
+        # Create comprehensive agent state
+        agent_id = self.create_comprehensive_agent_state(
+            name="Workbench Complete State",
+            metadata={"export_type": "complete_workbench_state"}
+        )
+        
+        # Export as P-System membrane
+        membrane_manifest = self.export_agent_as_p_system_membrane(
+            agent_id, export_path, "workbench_membrane"
+        )
+        
+        # Export environment tensors separately
+        env_tensor_manifest = self.export_all_environment_tensors(export_path / "environment_tensors")
+        
+        # Create master manifest
+        master_manifest = {
+            "export_type": "complete_workbench_state",
+            "export_timestamp": time.time(),
+            "main_membrane": membrane_manifest,
+            "environment_tensors": env_tensor_manifest,
+            "tensor_manager_stats": self.tensor_manager.get_all_tensor_statistics(),
+            "kernelizer_status": self.ha_kernelizer.get_kernelization_status(),
+            "experiments": self.list_experiments()
+        }
+        
+        from ..utils.json import write_json_file
+        master_manifest_path = export_path / "workbench_state_manifest.json"
+        write_json_file(master_manifest_path, master_manifest)
+        
+        _LOGGER.info("Exported complete workbench state to %s", export_path)
+        return master_manifest

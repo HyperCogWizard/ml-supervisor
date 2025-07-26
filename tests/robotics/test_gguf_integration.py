@@ -288,3 +288,157 @@ class TestGGUFIntegration:
         assert len(agent_state.tensors) == 11
         assert len(agent_state.device_configs) == 16  # 12 joints + 4 sensors
         assert len(agent_state.control_loops) == 3
+
+    def test_enhanced_gguf_serialization_with_data(self, gguf_manager):
+        """Test enhanced GGUF serialization with actual tensor data."""
+        agent_state = gguf_manager.create_agent_state(
+            name="Enhanced Test Agent",
+            metadata={"test": True, "enhanced": True}
+        )
+        
+        # Add tensors with actual numpy data
+        import numpy as np
+        position_data = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        agent_state.add_tensor("position", [3], "float32", position_data)
+        
+        velocity_data = np.array([0.1, 0.2, 0.3], dtype=np.float32)
+        agent_state.add_tensor("velocity", [3], "float32", velocity_data)
+        
+        state_history = np.random.randn(50, 64).astype(np.float32)
+        agent_state.add_tensor("state_history", [50, 64], "float32", state_history)
+        
+        # Add device config and control loop for comprehensive serialization
+        agent_state.add_device_config("test_device", {
+            "type": "test_servo",
+            "range": [-180, 180],
+            "precision": 0.1
+        })
+        
+        agent_state.add_control_loop({
+            "loop_id": "test_controller",
+            "type": "enhanced_test",
+            "parameters": {"gain": 2.0}
+        })
+        
+        # Test enhanced serialization
+        gguf_data = gguf_manager.serialize_agent_state(agent_state.agent_id)
+        
+        # Verify GGUF magic number and basic structure
+        import struct
+        magic = struct.unpack("<I", gguf_data[:4])[0]
+        assert magic == 0x46554747
+        
+        version = struct.unpack("<I", gguf_data[4:8])[0]
+        assert version == 3
+        
+        # Should contain actual tensor data, so should be larger than metadata-only
+        assert len(gguf_data) > 13000  # Position + velocity + state_history data
+        
+        # Verify comprehensive metadata is included
+        schema = gguf_manager.get_agent_tensor_schema(agent_state.agent_id)
+        assert schema["tensor_count"] == 3
+        assert schema["total_parameters"] == 3 + 3 + (50 * 64)  # 3206 total
+
+    def test_p_system_membrane_export(self, gguf_manager):
+        """Test P-System membrane export functionality."""
+        # Create agent with multiple device types for sub-membrane creation
+        agent_state = gguf_manager.create_agent_state(
+            name="P-System Test Agent",
+            metadata={"membrane_test": True}
+        )
+        
+        # Add tensors
+        import numpy as np
+        joint_data = np.random.randn(12).astype(np.float32)
+        agent_state.add_tensor("joint_positions", [12], "float32", joint_data)
+        
+        # Large tensor that should be exported separately  
+        large_data = np.random.randn(200, 300).astype(np.float32)
+        agent_state.add_tensor("large_tensor", [200, 300], "float32", large_data)
+        
+        # Add devices of different types
+        for i in range(4):
+            agent_state.add_device_config(f"servo_{i}", {
+                "device_type": "servo_motor",
+                "joint": i
+            })
+        
+        for i in range(2):
+            agent_state.add_device_config(f"sensor_{i}", {
+                "device_type": "sensor",
+                "type": "force"
+            })
+        
+        agent_state.add_device_config("camera", {
+            "device_type": "camera",
+            "resolution": [640, 480]
+        })
+        
+        # Test P-System membrane export
+        with tempfile.TemporaryDirectory() as temp_dir:
+            export_path = Path(temp_dir)
+            membrane_manifest = gguf_manager.export_as_p_system_membrane(
+                agent_state.agent_id, export_path, "test_membrane"
+            )
+            
+            # Verify membrane structure
+            assert "sub_membranes" in membrane_manifest
+            assert "tensor_files" in membrane_manifest
+            assert "components" in membrane_manifest
+            
+            # Should create sub-membranes for servo_motor and sensor (multiple devices)
+            assert "servo_motor" in membrane_manifest["sub_membranes"]
+            assert "sensor" in membrane_manifest["sub_membranes"]
+            # Camera should not have sub-membrane (only 1 device)
+            assert "camera" not in membrane_manifest["sub_membranes"]
+            
+            # Large tensor should be exported separately
+            assert len(membrane_manifest["tensor_files"]) > 0
+            
+            # Verify membrane directory exists
+            membrane_dir = export_path / "test_membrane"
+            assert membrane_dir.exists()
+            assert (membrane_dir / "membrane_manifest.json").exists()
+            
+            # Test import
+            imported_agent_id = gguf_manager.import_p_system_membrane(membrane_dir)
+            assert imported_agent_id == agent_state.agent_id
+
+    def test_tensor_manager_integration(self, gguf_manager):
+        """Test integration with tensor manager."""
+        from supervisor.robotics.tensor_manager import TensorManager
+        
+        # Mock coresys for tensor manager
+        class MockCoresys:
+            pass
+        
+        coresys = MockCoresys()
+        tensor_manager = TensorManager(coresys)
+        
+        # Create tensor fields
+        field1 = tensor_manager.create_device_tensor_field("device_1", "servo", channels=3)
+        field2 = tensor_manager.create_sensor_tensor_field("sensor_1", "imu", channels=9)
+        field3 = tensor_manager.create_agent_state_tensor_field("agent_1", state_dimension=128)
+        
+        # Update with data
+        import numpy as np
+        field = tensor_manager.get_tensor_field(field1)
+        test_data = np.random.randn(*field.shape).astype(np.float32)
+        tensor_manager.update_tensor_field(field1, test_data)
+        
+        # Create agent state from tensor manager
+        agent_state = gguf_manager.create_agent_state_from_tensor_manager(
+            tensor_manager, name="TensorManager Integration Test"
+        )
+        
+        # Verify integration
+        assert len(agent_state.tensors) == 3  # Should capture all 3 tensor fields
+        assert len(agent_state.device_configs) >= 2  # Should capture device and sensor configs
+        
+        # Test serialization of integrated data
+        gguf_data = gguf_manager.serialize_agent_state(agent_state.agent_id)
+        assert len(gguf_data) > 1000  # Should contain actual tensor data
+        
+        # Verify schema
+        schema = gguf_manager.get_agent_tensor_schema(agent_state.agent_id)
+        assert schema["tensor_count"] == 3
