@@ -1,8 +1,8 @@
 """Hypergraph engine for modular robotics workbench components."""
 
-import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple
+import logging
+from typing import Any, Dict, List, Set
 from uuid import uuid4
 
 from ..coresys import CoreSysAttributes
@@ -13,14 +13,14 @@ _LOGGER: logging.Logger = logging.getLogger(__name__)
 @dataclass
 class TensorDimensionSpec:
     """Structured specification for tensor dimensions."""
-    
+
     degrees_of_freedom: int
-    channels: int 
+    channels: int
     modalities: List[str]
-    temporal_length: Optional[int] = None
+    temporal_length: int | None = None
     batch_size: int = 1
     additional_dims: List[int] = field(default_factory=list)
-    
+
     def get_tensor_shape(self) -> List[int]:
         """Get the complete tensor shape."""
         shape = [self.batch_size, self.degrees_of_freedom, self.channels]
@@ -28,7 +28,7 @@ class TensorDimensionSpec:
             shape.append(self.temporal_length)
         shape.extend(self.additional_dims)
         return shape
-    
+
     def get_total_elements(self) -> int:
         """Get total number of tensor elements."""
         shape = self.get_tensor_shape()
@@ -38,27 +38,27 @@ class TensorDimensionSpec:
 @dataclass
 class MiddlewareInterface:
     """Standard interface specification for middleware components."""
-    
+
     interface_type: str  # "sensor_input", "actuator_output", "control_signal", "data_stream"
     data_format: str  # "tensor", "json", "binary", "event"
     communication_protocol: str  # "direct", "message_queue", "shared_memory", "network"
-    update_frequency: Optional[float] = None
-    
-    
+    update_frequency: float | None = None
+
+
 @dataclass
 class HypergraphNode:
     """A node in the robotics hypergraph representing a middleware component."""
-    
+
     node_id: str
     node_type: str  # "device", "sensor", "actuator", "agent", "control_loop", "middleware"
     middleware_type: str  # "hardware_interface", "data_processor", "controller", "ai_agent"
     name: str
     properties: Dict[str, Any]
-    tensor_spec: Optional[TensorDimensionSpec] = None
-    component_interface: Optional[MiddlewareInterface] = None
-    
+    tensor_spec: TensorDimensionSpec | None = None
+    component_interface: MiddlewareInterface | None = None
+
     # Legacy support
-    tensor_dimensions: Optional[List[int]] = None
+    tensor_dimensions: List[int] | None = None
     degrees_of_freedom: int = 0
     modalities: List[str] = field(default_factory=list)
 
@@ -75,7 +75,7 @@ class HypergraphNode:
                 modalities=self.modalities,
                 additional_dims=self.tensor_dimensions[2:] if len(self.tensor_dimensions) > 2 else []
             )
-        
+
         # Update legacy fields from tensor_spec
         if self.tensor_spec:
             self.degrees_of_freedom = self.tensor_spec.degrees_of_freedom
@@ -83,16 +83,16 @@ class HypergraphNode:
                 self.modalities = self.tensor_spec.modalities
             if not self.tensor_dimensions:
                 self.tensor_dimensions = self.tensor_spec.get_tensor_shape()
-        
+
         # Set default middleware_type if not specified
         if not hasattr(self, 'middleware_type') or not self.middleware_type:
             self.middleware_type = self._infer_middleware_type()
-    
+
     def _infer_middleware_type(self) -> str:
         """Infer middleware type from node_type."""
         type_mapping = {
             "sensor": "hardware_interface",
-            "actuator": "hardware_interface", 
+            "actuator": "hardware_interface",
             "device": "hardware_interface",
             "agent": "ai_agent",
             "control_loop": "controller"
@@ -103,7 +103,7 @@ class HypergraphNode:
 @dataclass
 class HypergraphEdge:
     """A hyperedge connecting multiple nodes."""
-    
+
     edge_id: str
     edge_type: str  # "data_flow", "control", "dependency", "neural_connection"
     nodes: Set[str]  # Node IDs
@@ -122,15 +122,15 @@ class HypergraphEngine(CoreSysAttributes):
         self._edges: Dict[str, HypergraphEdge] = {}
         self._node_edges: Dict[str, Set[str]] = {}  # Node ID -> Edge IDs
 
-    def add_device_node(self, device_id: str, device_type: str, name: str, 
-                       tensor_dims: Optional[List[int]] = None, 
-                       modalities: Optional[List[str]] = None,
-                       properties: Optional[Dict[str, Any]] = None,
-                       degrees_of_freedom: Optional[int] = None,
-                       channels: Optional[int] = None) -> str:
+    def add_device_node(self, device_id: str, device_type: str, name: str,
+                       tensor_dims: List[int] | None = None,
+                       modalities: List[str] | None = None,
+                       properties: Dict[str, Any] | None = None,
+                       degrees_of_freedom: int | None = None,
+                       channels: int | None = None) -> str:
         """Add a device node to the hypergraph."""
         node_id = f"device_{device_id}"
-        
+
         # Create tensor specification
         tensor_spec = None
         if degrees_of_freedom or channels or tensor_dims:
@@ -142,14 +142,14 @@ class HypergraphEngine(CoreSysAttributes):
                 modalities=modalities or [device_type],
                 additional_dims=tensor_dims[2:] if tensor_dims and len(tensor_dims) > 2 else []
             )
-        
+
         # Create component interface
         interface = MiddlewareInterface(
             interface_type="device_interface",
             data_format="tensor",
             communication_protocol="direct"
         )
-        
+
         node = HypergraphNode(
             node_id=node_id,
             node_type="device",
@@ -161,21 +161,21 @@ class HypergraphEngine(CoreSysAttributes):
             tensor_dimensions=tensor_dims,  # Legacy support
             modalities=modalities or []
         )
-        
+
         self._nodes[node_id] = node
         self._node_edges[node_id] = set()
-        
+
         _LOGGER.info("Added device node: %s (%s)", node_id, name)
         return node_id
 
     def add_sensor_node(self, sensor_id: str, sensor_type: str, name: str,
-                       channels: int = 1, sampling_rate: Optional[float] = None,
-                       tensor_dims: Optional[List[int]] = None,
-                       properties: Optional[Dict[str, Any]] = None,
-                       temporal_length: Optional[int] = None) -> str:
+                       channels: int = 1, sampling_rate: float | None = None,
+                       tensor_dims: List[int] | None = None,
+                       properties: Dict[str, Any] | None = None,
+                       temporal_length: int | None = None) -> str:
         """Add a sensor node to the hypergraph."""
         node_id = f"sensor_{sensor_id}"
-        
+
         props = properties or {}
         props.update({
             "sensor_type": sensor_type,
@@ -184,7 +184,7 @@ class HypergraphEngine(CoreSysAttributes):
         })
         if sampling_rate:
             props["sampling_rate"] = sampling_rate
-            
+
         # Create structured tensor specification
         tensor_spec = TensorDimensionSpec(
             degrees_of_freedom=1,  # Sensors typically have 1 DoF (measurement)
@@ -192,7 +192,7 @@ class HypergraphEngine(CoreSysAttributes):
             modalities=[sensor_type],
             temporal_length=temporal_length or (tensor_dims[1] if tensor_dims and len(tensor_dims) > 1 else 100)
         )
-        
+
         # Create component interface
         interface = MiddlewareInterface(
             interface_type="sensor_input",
@@ -200,7 +200,7 @@ class HypergraphEngine(CoreSysAttributes):
             communication_protocol="direct",
             update_frequency=sampling_rate
         )
-        
+
         node = HypergraphNode(
             node_id=node_id,
             node_type="sensor",
@@ -212,21 +212,21 @@ class HypergraphEngine(CoreSysAttributes):
             tensor_dimensions=tensor_dims or [channels, temporal_length or 100],  # Legacy support
             modalities=[sensor_type]
         )
-        
+
         self._nodes[node_id] = node
         self._node_edges[node_id] = set()
-        
+
         _LOGGER.info("Added sensor node: %s (%s)", node_id, name)
         return node_id
 
     def add_actuator_node(self, actuator_id: str, actuator_type: str, name: str,
                          dof: int = 1, control_type: str = "position",
-                         tensor_dims: Optional[List[int]] = None,
-                         properties: Optional[Dict[str, Any]] = None,
-                         channels: Optional[int] = None) -> str:
+                         tensor_dims: List[int] | None = None,
+                         properties: Dict[str, Any] | None = None,
+                         channels: int | None = None) -> str:
         """Add an actuator node to the hypergraph."""
         node_id = f"actuator_{actuator_id}"
-        
+
         props = properties or {}
         props.update({
             "actuator_type": actuator_type,
@@ -234,7 +234,7 @@ class HypergraphEngine(CoreSysAttributes):
             "degrees_of_freedom": dof,
             "control_type": control_type,
         })
-        
+
         # Create structured tensor specification
         actuator_channels = channels or dof  # Default channels = DoF
         tensor_spec = TensorDimensionSpec(
@@ -243,18 +243,18 @@ class HypergraphEngine(CoreSysAttributes):
             modalities=[control_type, actuator_type],
             temporal_length=tensor_dims[1] if tensor_dims and len(tensor_dims) > 1 else 50
         )
-        
+
         # Create component interface
         interface = MiddlewareInterface(
-            interface_type="actuator_output", 
+            interface_type="actuator_output",
             data_format="tensor",
             communication_protocol="direct"
         )
-        
+
         node = HypergraphNode(
             node_id=node_id,
             node_type="actuator",
-            middleware_type="hardware_interface", 
+            middleware_type="hardware_interface",
             name=name,
             properties=props,
             tensor_spec=tensor_spec,
@@ -262,26 +262,26 @@ class HypergraphEngine(CoreSysAttributes):
             tensor_dimensions=tensor_dims or [dof, 50],  # Legacy support
             degrees_of_freedom=dof
         )
-        
+
         self._nodes[node_id] = node
         self._node_edges[node_id] = set()
-        
+
         _LOGGER.info("Added actuator node: %s (%s)", node_id, name)
         return node_id
 
     def add_agent_node(self, agent_id: str, name: str, agent_type: str = "autonomous",
-                      state_dims: Optional[List[int]] = None,
-                      properties: Optional[Dict[str, Any]] = None,
+                      state_dims: List[int] | None = None,
+                      properties: Dict[str, Any] | None = None,
                       hidden_size: int = 256) -> str:
         """Add an agent node to the hypergraph."""
         node_id = f"agent_{agent_id}"
-        
+
         props = properties or {}
         props.update({
             "agent_type": agent_type,
             "agent_id": agent_id,
         })
-        
+
         # Create structured tensor specification for agent state
         tensor_spec = TensorDimensionSpec(
             degrees_of_freedom=1,  # Agents have complex state, DoF=1 for simplicity
@@ -289,14 +289,14 @@ class HypergraphEngine(CoreSysAttributes):
             modalities=["cognitive", "neural", "symbolic"],
             temporal_length=state_dims[1] if state_dims and len(state_dims) > 1 else None
         )
-        
+
         # Create component interface
         interface = MiddlewareInterface(
             interface_type="control_signal",
             data_format="tensor",
             communication_protocol="message_queue"
         )
-        
+
         node = HypergraphNode(
             node_id=node_id,
             node_type="agent",
@@ -308,26 +308,26 @@ class HypergraphEngine(CoreSysAttributes):
             tensor_dimensions=state_dims or [1, hidden_size],  # Legacy support
             modalities=["cognitive", "neural", "symbolic"]
         )
-        
+
         self._nodes[node_id] = node
         self._node_edges[node_id] = set()
-        
+
         _LOGGER.info("Added agent node: %s (%s)", node_id, name)
         return node_id
 
     def add_control_loop_node(self, loop_id: str, name: str, loop_type: str = "pid",
                              update_rate: float = 10.0,
-                             properties: Optional[Dict[str, Any]] = None) -> str:
+                             properties: Dict[str, Any] | None = None) -> str:
         """Add a control loop node to the hypergraph."""
         node_id = f"control_{loop_id}"
-        
+
         props = properties or {}
         props.update({
             "loop_type": loop_type,
             "loop_id": loop_id,
             "update_rate": update_rate,
         })
-        
+
         # Create structured tensor specification
         tensor_spec = TensorDimensionSpec(
             degrees_of_freedom=1,  # Control loops have 1 DoF (control signal)
@@ -335,7 +335,7 @@ class HypergraphEngine(CoreSysAttributes):
             modalities=[loop_type, "control"],
             temporal_length=100  # Control history buffer
         )
-        
+
         # Create component interface
         interface = MiddlewareInterface(
             interface_type="control_signal",
@@ -343,7 +343,7 @@ class HypergraphEngine(CoreSysAttributes):
             communication_protocol="direct",
             update_frequency=update_rate
         )
-        
+
         node = HypergraphNode(
             node_id=node_id,
             node_type="control_loop",
@@ -354,20 +354,20 @@ class HypergraphEngine(CoreSysAttributes):
             component_interface=interface,
             tensor_dimensions=[1, 1],  # Legacy support
         )
-        
+
         self._nodes[node_id] = node
         self._node_edges[node_id] = set()
-        
+
         _LOGGER.info("Added control loop node: %s (%s)", node_id, name)
         return node_id
 
     def add_middleware_component(self, component_id: str, middleware_type: str, name: str,
                                 tensor_spec: TensorDimensionSpec,
                                 interface: MiddlewareInterface,
-                                properties: Optional[Dict[str, Any]] = None) -> str:
+                                properties: Dict[str, Any] | None = None) -> str:
         """Add a general middleware component node to the hypergraph."""
         node_id = f"middleware_{component_id}"
-        
+
         node = HypergraphNode(
             node_id=node_id,
             node_type="middleware",
@@ -377,24 +377,24 @@ class HypergraphEngine(CoreSysAttributes):
             tensor_spec=tensor_spec,
             component_interface=interface
         )
-        
+
         self._nodes[node_id] = node
         self._node_edges[node_id] = set()
-        
+
         _LOGGER.info("Added middleware component: %s (%s)", node_id, name)
         return node_id
 
-    def connect_nodes(self, node_ids: List[str], edge_type: str = "data_flow", 
-                     name: str = "", properties: Optional[Dict[str, Any]] = None,
+    def connect_nodes(self, node_ids: List[str], edge_type: str = "data_flow",
+                     name: str = "", properties: Dict[str, Any] | None = None,
                      weight: float = 1.0, directional: bool = False) -> str:
         """Create a hyperedge connecting multiple nodes."""
         edge_id = str(uuid4())
-        
+
         # Validate nodes exist
         for node_id in node_ids:
             if node_id not in self._nodes:
                 raise ValueError(f"Node {node_id} not found")
-        
+
         edge = HypergraphEdge(
             edge_id=edge_id,
             edge_type=edge_type,
@@ -403,21 +403,21 @@ class HypergraphEngine(CoreSysAttributes):
             weight=weight,
             directional=directional
         )
-        
+
         self._edges[edge_id] = edge
-        
+
         # Update node-edge mappings
         for node_id in node_ids:
             self._node_edges[node_id].add(edge_id)
-        
+
         _LOGGER.info("Connected nodes %s with edge %s (%s)", node_ids, edge_id, edge_type)
         return edge_id
 
-    def get_node(self, node_id: str) -> Optional[HypergraphNode]:
+    def get_node(self, node_id: str) -> HypergraphNode | None:
         """Get node by ID."""
         return self._nodes.get(node_id)
 
-    def get_edge(self, edge_id: str) -> Optional[HypergraphEdge]:
+    def get_edge(self, edge_id: str) -> HypergraphEdge | None:
         """Get edge by ID."""
         return self._edges.get(edge_id)
 
@@ -425,14 +425,14 @@ class HypergraphEngine(CoreSysAttributes):
         """Get all nodes connected to the given node."""
         if node_id not in self._node_edges:
             return []
-        
+
         connected_nodes = []
         for edge_id in self._node_edges[node_id]:
             edge = self._edges[edge_id]
             for connected_node_id in edge.nodes:
                 if connected_node_id != node_id:
                     connected_nodes.append(self._nodes[connected_node_id])
-        
+
         return connected_nodes
 
     def get_nodes_by_type(self, node_type: str) -> List[HypergraphNode]:
@@ -447,14 +447,14 @@ class HypergraphEngine(CoreSysAttributes):
             node_types[node.node_type] = node_types.get(node.node_type, 0) + 1
             if hasattr(node, 'middleware_type') and node.middleware_type:
                 middleware_types[node.middleware_type] = middleware_types.get(node.middleware_type, 0) + 1
-        
+
         edge_types = {}
         for edge in self._edges.values():
             edge_types[edge.edge_type] = edge_types.get(edge.edge_type, 0) + 1
-        
+
         total_dof = sum(node.degrees_of_freedom for node in self._nodes.values())
         total_channels = sum(node.tensor_spec.channels if node.tensor_spec else 0 for node in self._nodes.values())
-        
+
         return {
             "total_nodes": len(self._nodes),
             "total_edges": len(self._edges),
@@ -480,7 +480,7 @@ class HypergraphEngine(CoreSysAttributes):
                 # Legacy support
                 "tensor_dimensions": node.tensor_dimensions,
             }
-            
+
             # Add tensor specification if available
             if hasattr(node, 'tensor_spec') and node.tensor_spec:
                 node_data["tensor_spec"] = {
@@ -492,7 +492,7 @@ class HypergraphEngine(CoreSysAttributes):
                     "additional_dims": node.tensor_spec.additional_dims,
                     "tensor_shape": node.tensor_spec.get_tensor_shape(),
                 }
-            
+
             # Add component interface if available
             if hasattr(node, 'component_interface') and node.component_interface:
                 node_data["component_interface"] = {
@@ -501,9 +501,9 @@ class HypergraphEngine(CoreSysAttributes):
                     "communication_protocol": node.component_interface.communication_protocol,
                     "update_frequency": node.component_interface.update_frequency,
                 }
-            
+
             nodes_data[node_id] = node_data
-        
+
         edges_data = {}
         for edge_id, edge in self._edges.items():
             edges_data[edge_id] = {
@@ -513,7 +513,7 @@ class HypergraphEngine(CoreSysAttributes):
                 "weight": edge.weight,
                 "directional": edge.directional,
             }
-        
+
         return {
             "nodes": nodes_data,
             "edges": edges_data,
@@ -531,17 +531,17 @@ class HypergraphEngine(CoreSysAttributes):
         """Remove a node and all its connected edges."""
         if node_id not in self._nodes:
             return False
-        
+
         # Remove all edges connected to this node
         edges_to_remove = list(self._node_edges.get(node_id, set()))
         for edge_id in edges_to_remove:
             self.remove_edge(edge_id)
-        
+
         # Remove the node
         del self._nodes[node_id]
         if node_id in self._node_edges:
             del self._node_edges[node_id]
-        
+
         _LOGGER.info("Removed node: %s", node_id)
         return True
 
@@ -549,16 +549,16 @@ class HypergraphEngine(CoreSysAttributes):
         """Remove an edge."""
         if edge_id not in self._edges:
             return False
-        
+
         edge = self._edges[edge_id]
-        
+
         # Remove edge from node mappings
         for node_id in edge.nodes:
             if node_id in self._node_edges:
                 self._node_edges[node_id].discard(edge_id)
-        
+
         # Remove the edge
         del self._edges[edge_id]
-        
+
         _LOGGER.info("Removed edge: %s", edge_id)
         return True
